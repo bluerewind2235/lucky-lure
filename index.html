@@ -313,6 +313,9 @@ sRight:['เอียงขวา!','Tilt right!','右に傾けて！','向右�
 sUp:['ยกคันขึ้น!','Rod up!','竿を立てて！','竿子抬起！','Rute hoch!','Nâng cần!'],
 sDown:['ลดคันลง!','Rod down!','竿を下げて！','竿子放低！','Rute runter!','Hạ cần!'],
 sReel:['กดค้างที่จอเพื่อม้วนรอก ปล่อยเพื่อผ่อนสาย','Hold the screen to reel, let go to ease off','画面長押しで巻く・離してゆるめる','按住屏幕收线，松开放线','Bildschirm halten = kurbeln, loslassen = nachgeben','Giữ màn hình để quay, thả để nới'],
+sPump:['ยกคันขึ้นเพื่อดึงปลา แล้วลดลงช้า ๆ สลับไป','Lift the rod to pull, then lower it slowly. Repeat','竿を立てて寄せ、ゆっくり戻す。繰り返す','抬竿拉鱼，再慢慢放低，反复进行','Rute heben zum Ziehen, langsam senken. Wiederholen','Nâng cần để kéo, rồi hạ từ từ. Lặp lại'],
+sGive:['ชี้คันลงหาปลา!','Point the rod at the fish!','竿先を魚へ向けて！','竿尖指向鱼！','Rute zum Fisch senken!','Chĩa cần về phía cá!'],
+sJerk:['กระตุกคันขึ้น!','Jerk the rod up!','竿をしゃくれ！','猛地抬竿！','Rute hochreißen!','Giật cần lên!'],
 sensMode:['โหมดเซ็นเซอร์','Motion mode','モーション','体感模式','Bewegung','Cảm biến'],
 tapStart:['แตะเพื่อเริ่ม','Tap to start','タップしてスタート','点击开始','Tippen zum Starten','Chạm để bắt đầu'],
 cont:['ตกปลาต่อ','Continue','続きから','继续','Weiter','Tiếp tục'],
@@ -456,7 +459,7 @@ function drawFish(c,f,x,y,L,dir,tt,o){
 }
 
 /* ---------- motion sensors (DeviceOrientation + DeviceMotion; iOS asks permission on a tap) ---------- */
-const SENS={live:false,b0:0,g0:0,beta:0,gamma:0,pitch:0,tilt:0,rate:0,last:0,wsign:1,maxP:0,peak:0,armT:0,cool:0};
+const SENS={up:0,lift:0,live:false,b0:0,g0:0,beta:0,gamma:0,pitch:0,tilt:0,rate:0,last:0,wsign:1,maxP:0,peak:0,armT:0,cool:0};
 const angD=(a,b)=>{let d=a-b;while(d>180)d-=360;while(d<-180)d+=360;return d};
 function onOrient(e){if(e.beta==null)return;SENS.beta=e.beta;SENS.gamma=e.gamma||0;SENS.last=performance.now();SENS.pitch=angD(SENS.beta,SENS.b0);SENS.tilt=clamp(SENS.gamma-SENS.g0,-90,90)}
 function onMotion(e){const r=e.rotationRate;if(!r)return;SENS.rate=Math.hypot(r.alpha||0,r.beta||0,r.gamma||0);SENS.last=performance.now()}
@@ -481,11 +484,11 @@ function sensStep(dt){
       else if(along<6&&R<120){F.st='idle';F.p=0}break}
     case 'wait':if(R>240&&SENS.cool<=0){setMsg(F.nibOn>0?t('spooked'):t('reelIn'),0.9);F.st='pause';F.t=0.7;SENS.cool=0.6}break;
     case 'bite':if(R>170||P*SENS.wsign>14){startFight(pickFish(),false);setMsg('',0);HAP('heavy');shake(6);SENS.cool=0.5}break;
-    case 'fight':{const ev=F.ev;if(ev&&ev.ph==='on'&&ev.type!=='dash'&&ev.ok===null){
-      const up=P*SENS.wsign;let hit=false;
+    case 'fight':{const up=P*SENS.wsign,v=(up-SENS.up)/Math.max(dt,0.008);SENS.up=up;SENS.lift=lerp(SENS.lift,Math.max(0,v),Math.min(1,dt*12));F.hold=SENS.lift>4;
+      const ev=F.ev;if(ev&&ev.ph==='on'&&ev.type!=='dash'&&ev.ok===null){let hit=false;
       if(ev.type==='side')hit=ev.dir==='left'?SENS.tilt<-16:SENS.tilt>16;
-      else if(ev.type==='jump')hit=up>14||R>200;
-      else if(ev.type==='dive')hit=up<-14;
+      else if(ev.type==='jump')hit=up<-12;
+      else if(ev.type==='dive')hit=R>200||v>160;
       if(hit)evWin()}break}
   }
 }
@@ -662,7 +665,7 @@ function pickFish(){
 }
 function startFight(fish,boss){
   F.fish=fish;F.boss=!!boss;F.phase=1;F.prog=boss?30:25;F.ten=15;F.ev=null;F.evT=boss?2:rnd(1.6,2.6);F.retried=false;F.st='fight';F.hold=false;
-  F.fx=F.castX;F.fz=F.castZ;F.fy=fsy();F.jump=0;F.dir=F.castX>W*0.55?-1:1;
+  F.fx=F.castX;F.fz=F.castZ;F.fy=fsy();F.jump=0;SENS.up=SENS.pitch*SENS.wsign;SENS.lift=0;F.dir=F.castX>W*0.55?-1:1;
 }
 function nextEvent(){
   const f=F.fish,list=BEH[f.bh];const type=list[Math.floor(Math.random()*list.length)];
@@ -677,7 +680,15 @@ function updateFight(dt){
   const rodF=1/(1+0.07*(S.up.rod-1)),lineF=1/(1+0.06*(S.up.line-1));
   const reel=(15+1.6*(S.up.reel-1))/fishHp(),pull=fishPull();
   const ev=F.ev,dashing=ev&&ev.type==='dash'&&ev.ph==='on';
-  if(F.hold){
+  if(sensorMode()){
+    // pump & reel: line comes in while the rod is being lifted; holding it high keeps tension up; lowering eases off
+    const up=SENS.up,lift=SENS.lift,hi=clamp((up-8)/32,0,1),low=clamp((-up-6)/22,0,1);
+    if(lift>4){F.prog+=lift*(0.62/fishHp())*(F.ten>=45?1.25:1)*(dashing?0.2:1)*dt;F.ten+=lift*0.75*lineF*(dashing?(2.2*rodF+0.3):1)*dt}
+    else F.prog-=(1.5+pull*1.6)*rodF*(dashing?0.6:1)*(low>0.3?0.5:1)*dt;
+    F.ten+=hi*(10+pull*10)*lineF*dt;
+    F.ten-=(lift>4?8:30+low*25)*dt;
+    if(dashing&&up>-8)F.ten+=(26+pull*10)*rodF*dt;
+  }else if(F.hold){
     F.ten+=(16+pull*22)*lineF*(dashing?(2.4*rodF+0.3):1)*dt;
     F.prog+=reel*(F.ten>=50?1.7:1)*(dashing?0.25:1)*dt;
   }else{
@@ -783,7 +794,7 @@ function frame(now){
 function step(dt){
   if(cur!=='fish')return;
   sensStep(dt);
-  F.wobT+=dt;if(F.st!=='power'&&F.st!=='swing')F.back=lerp(F.back,0,Math.min(1,dt*7));
+  F.wobT+=dt;if(sensorMode()&&F.st==='fight')F.back=lerp(F.back,clamp(SENS.up/45,-0.35,0.75),Math.min(1,dt*10));else if(F.st!=='power'&&F.st!=='swing')F.back=lerp(F.back,0,Math.min(1,dt*7));
   if(F.msgT>0)F.msgT-=dt;
   switch(F.st){
     case 'power':if(!sensorMode()){F.p+=dt*1.35*F.pd;if(F.p>=1){F.p=1;F.pd=-1}if(F.p<=0){F.p=0;F.pd=1}}F.back=lerp(F.back,0.2+0.8*F.p,Math.min(1,dt*10));break;
@@ -871,9 +882,9 @@ function drawFishUI(){
     if(tv>0.85&&Math.sin(TT*25)>0)txt('!',tx+tw/2,ty-22,24,'#ff8a6a','d');
     const ev=F.ev;
     if(ev){
-      if(ev.type==='dash'){txt(t('release'),W/2,H*0.38,32,'#ffb39a','d')}
-      else if(ev.ok===null&&SM){const on=ev.ph==='on',k={left:'sLeft',right:'sRight',up:'sUp',down:'sDown'}[ev.dir];
-        drawPhone(W/2,H*0.3,ev.dir,on);txt(t(k),W/2,H*0.3+62,24,on?GOLD:'#f3eee4','d')}
+      if(ev.type==='dash'){txt(SM?t('sGive'):t('release'),W/2,H*0.38,SM?28:32,'#ffb39a','d');if(SM)drawPhone(W/2,H*0.3-6,'down',true)}
+      else if(ev.ok===null&&SM){const on=ev.ph==='on',dd=ev.type==='jump'?'down':ev.type==='dive'?'up':ev.dir,k=ev.type==='jump'?'sDown':ev.type==='dive'?'sJerk':({left:'sLeft',right:'sRight'})[ev.dir];
+        drawPhone(W/2,H*0.3,dd,on);txt(t(k),W/2,H*0.3+62,24,on?GOLD:'#f3eee4','d')}
       else if(ev.ok===null){
         const ang={up:-Math.PI/2,down:Math.PI/2,left:Math.PI,right:0}[ev.dir],on=ev.ph==='on';
         c.save();c.translate(W/2,H*0.3);c.rotate(ang);c.lineCap='round';c.lineJoin='round';
@@ -883,10 +894,16 @@ function drawFishUI(){
         txt(t('swipe'),W/2,H*0.3+52,22,on?GOLD:'#f3eee4','d');
       }
     }
-    if(!S.tutDone||SM)txt(SM?t('sReel'):t('holdTip'),W/2,bot-30,14);
+    if(SM)drawRodGauge();
+    if(!S.tutDone||SM)txt(SM?t('sPump'):t('holdTip'),W/2,bot-30,14);
   }
   if(F.msgT>0&&F.msg)txt(F.msg,W/2,H*0.38,30,'#fff','d');
 }
+function drawRodGauge(){const c=ctx,th=Math.min(H*0.32,240),tx=Math.max(18,W*0.05),ty=H*0.34,tw=10;
+  glass(tx-7,ty-7,tw+14,th+14,12);const mid=ty+th*0.55,k=clamp(SENS.up/45,-0.6,1);
+  c.fillStyle='rgba(111,195,171,.25)';c.fillRect(tx,ty,tw,mid-ty);c.fillStyle='rgba(159,184,196,.18)';c.fillRect(tx,mid,tw,ty+th-mid);
+  c.fillStyle='rgba(255,255,255,.35)';c.fillRect(tx-3,mid-0.5,tw+6,1);
+  const y=k>=0?mid-k*(mid-ty):mid-k/0.6*(ty+th-mid);c.save();c.shadowColor=GOLD;c.shadowBlur=SENS.lift>4?14:6;c.fillStyle=GOLD;c.beginPath();c.roundRect(tx-4,y-4,tw+8,8,4);c.fill();c.restore()}
 /* sensor-mode helpers: a tilt level and a phone glyph that shows the move */
 function drawLevel(x,y){const c=ctx,w=120;glass(x-w/2-8,y-9,w+16,18,9);c.fillStyle='rgba(255,255,255,.18)';c.fillRect(x-0.5,y-6,1,12);
   const k=clamp(SENS.tilt/45,-1,1);c.save();c.shadowColor=GOLD;c.shadowBlur=8;c.fillStyle=GOLD;c.beginPath();c.arc(x+k*w/2,y,5,0,7);c.fill();c.restore()}
@@ -904,11 +921,11 @@ cv.addEventListener('pointerdown',e=>{
     case 'power':if(sensorMode())break;castRelease(F.p);break;
     case 'wait':if(sensorMode())break;setMsg(F.nibOn>0?t('spooked'):t('reelIn'),0.9);F.st='pause';F.t=0.7;break;
     case 'bite':if(sensorMode())break;startFight(pickFish(),false);setMsg('',0);HAP('heavy');shake(6);break;
-    case 'fight':F.hold=true;if(F.ev&&F.ev.ph==='on'&&F.ev.type!=='dash')F.ev.anchor=p;break;
+    case 'fight':if(sensorMode())break;F.hold=true;if(F.ev&&F.ev.ph==='on'&&F.ev.type!=='dash')F.ev.anchor=p;break;
   }
 });
 cv.addEventListener('pointermove',e=>{if(cur!=='fish')return;const p=pos(e);F.pDown=F.hold?p:F.pDown;if(F.st==='fight'&&F.hold&&!sensorMode())swipeCheck(p.x,p.y)});
-const up=()=>{F.hold=false;F.pDown=null};
+const up=()=>{if(sensorMode())return;F.hold=false;F.pDown=null};
 cv.addEventListener('pointerup',up);cv.addEventListener('pointercancel',up);cv.addEventListener('pointerleave',up);
 
 /* ---------- DOM helpers & screens ---------- */
@@ -1131,6 +1148,6 @@ function boot(){if(booted)return;booted=true;AU.ready.then(()=>SFX('sfx_intro',0
   const iv=setInterval(()=>{k=Math.min(artDone?1.1:0.9,k+0.1);$('#ldBar').style.width=Math.min(100,k*100)+'%';if(k>=1.1){clearInterval(iv);go('title')}},110)}
 $('#sIntro').addEventListener('click',boot);
 setTimeout(boot,2300);
-window.__AU=AU;window.__LL={S:()=>S,F,go,env,FISH,startFight,pickFish};
+window.__AU=AU;window.__LL={S:()=>S,F,go,env,FISH,BOSS,startFight,pickFish};
 </script>
 </body></html>
